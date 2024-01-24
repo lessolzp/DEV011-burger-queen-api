@@ -1,4 +1,7 @@
 const jwt = require('jsonwebtoken');
+const config = require('../config');
+
+const { secret } = config;
 
 module.exports = (secret) => (req, resp, next) => {
   const { authorization } = req.headers;
@@ -17,21 +20,46 @@ module.exports = (secret) => (req, resp, next) => {
     if (err) {
       return next(403);
     }
-
     // TODO: Verify user identity using `decodeToken.uid`
+    req.user = {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+      roles: decodedToken.roles,
+    };
   });
 };
 
-module.exports.isAuthenticated = (req) => (
-  // TODO: Decide based on the request information whether the user is authenticated
-  false
-);
+module.exports.isAuthenticated = (req) => {
+  const token = req.header('Authorization');
+  if (!token) {
+    console.log('Not authenticated');
+    return false;
+  }
+  return true;
+};
 
-module.exports.isAdmin = (req) => (
-  // TODO: Decide based on the request information whether the user is an admin
-  false
-);
-
+module.exports.isAdmin = (req) => {
+  const token = req.header('Authorization');
+  if (!token) {
+    console.log('No token provided');
+    return false;
+  } console.log(token);
+  try {
+    console.log('decoding');
+    const decoded = jwt.verify(token, secret);
+    console.log(decoded.roles);
+    if (decoded.roles.includes('admin')) {
+      // Check if the user has an admin role
+      console.log('User is an admin:');
+      return true;
+    }
+    console.log('User does not have admin role');
+    return false;
+  } catch (error) {
+    console.error('Token verification failed:', error.message);
+    return false;
+  }
+};
 module.exports.requireAuth = (req, resp, next) => (
   (!module.exports.isAuthenticated(req))
     ? next(401)
@@ -43,6 +71,6 @@ module.exports.requireAdmin = (req, resp, next) => (
   (!module.exports.isAuthenticated(req))
     ? next(401)
     : (!module.exports.isAdmin(req))
-      ? next(403)
+      ? next(405)
       : next()
 );

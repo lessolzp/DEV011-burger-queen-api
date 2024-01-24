@@ -8,8 +8,9 @@ const {
 const {
   getUsers,
 } = require('../controller/users');
+const { connect } = require('../connect');
 
-const initAdminUser = (app, next) => {
+const initAdminUser = async (app, next) => {
   const { adminEmail, adminPassword } = app.get('config');
   if (!adminEmail || !adminPassword) {
     return next();
@@ -18,14 +19,26 @@ const initAdminUser = (app, next) => {
   const adminUser = {
     email: adminEmail,
     password: bcrypt.hashSync(adminPassword, 10),
-    roles: { admin: true },
+    roles: 'admin',
   };
 
   // TODO: Create admin user
   // First, check if adminUser already exists in the database
   // If it doesn't exist, it needs to be saved
-
-  next();
+  try {
+    const db = connect();
+    const userCollection = db.collection('users');
+    // Lets verificate if exists a user with admin role
+    const existingAdmin = await userCollection.findOne({ roles: 'admin' });
+    // Now if it does not exists, we are saving it
+    if (!existingAdmin) {
+      await userCollection.insertOne(adminUser);
+    } return next();
+  } catch (error) {
+    // Lets handle any errors that might occur during database operations
+    console.error(error);
+    return next(500);
+  }
 };
 
 /*
@@ -56,42 +69,44 @@ const initAdminUser = (app, next) => {
  * (response).
  */
 
-/*
- * Português Brasileiro:
- *
- * Fluxo de uma aplicação e requisição em node - express:
- *
- * request  -> middleware1 -> middleware2 -> rota
- *                                             |
- * response <- middleware4 <- middleware3   <---
- *
- * A essência é que a requisição passa por cada uma das funções intermediárias
- * ou "middlewares" até chegar à função da rota; em seguida, essa função gera a
- * resposta, que passa novamente por outras funções intermediárias até finalmente
- * responder à usuária.
- *
- * Um exemplo de middleware poderia ser uma função que verifica se uma usuária
- * está realmente registrada na aplicação e tem permissões para usar a rota. Ou
- * também um middleware de tradução, que altera a resposta dependendo do idioma
- * da usuária.
- *
- * É por isso que sempre veremos os argumentos request, response e next em nossos
- * middlewares e rotas. Cada uma dessas funções terá a oportunidade de acessar a
- * requisição (request) e cuidar de enviar uma resposta (quebrando a cadeia) ou
- * delegar a requisição para a próxima função na cadeia (invocando next). Dessa
- * forma, a requisição (request) passa através das funções, assim como a resposta
- * (response).
- */
-
 module.exports = (app, next) => {
-
   app.get('/users', requireAdmin, getUsers);
 
   app.get('/users/:uid', requireAuth, (req, resp) => {
   });
 
-  app.post('/users', requireAdmin, (req, resp, next) => {
-    // TODO: Implement the route to add new users
+  app.post('/users', requireAdmin, async (req, resp, next) => {
+    try {
+      const { email, password, roles } = req.body; // its the body on postman
+      // lets validate the info is ok
+      if (!email || !password || !roles) {
+        console.log('Missing required fields');
+        return resp.status(400).json({ error: 'Missing required fields' });
+      }
+      // if the info is ok, we want to save it
+      const db = connect();
+      const userCollection = db.collection('users');
+      // first we need to validate that the user does not exist in db
+      const existingUser = await userCollection.findOne({ email });
+      if (existingUser) {
+        console.log('User with this email already exists');
+        return resp.status(403).json({ error: 'User with this email already exists' });
+      }
+      // if it does not exist lets save it
+      const newUser = {
+        email,
+        password: bcrypt.hashSync(password, 10),
+        roles,
+      };
+      // now lets create it
+      await userCollection.insertOne(newUser);
+      console.log('User created successfully!');
+      resp.status(200).json({ message: 'User created successfully' });
+    } catch (error) {
+      console.error(error);
+      // Handle any errors that might occur during the process
+      return next(500);
+    }
   });
 
   app.put('/users/:uid', requireAuth, (req, resp, next) => {
